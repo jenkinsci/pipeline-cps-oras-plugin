@@ -42,6 +42,7 @@ import org.kohsuke.stapler.AncestorInPath;
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.DataBoundSetter;
 import org.kohsuke.stapler.QueryParameter;
+import org.kohsuke.stapler.verb.POST;
 
 @PersistIn(JOB)
 public class CpsOrasFlowDefinition extends FlowDefinition {
@@ -158,6 +159,7 @@ public class CpsOrasFlowDefinition extends FlowDefinition {
         }
 
         @SuppressWarnings("unused")
+        @POST
         public ListBoxModel doFillCredentialsIdItems(@AncestorInPath Item item, @QueryParameter String credentialsId) {
             final StandardListBoxModel result = new StandardListBoxModel();
             if (item == null) {
