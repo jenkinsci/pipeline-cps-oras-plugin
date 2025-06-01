@@ -1,0 +1,4 @@
+<?jelly escape-by-default='true'?>
+<div>
+    Allow to store a pipeline script in an OCI registry using the ORAS client
+</div>
