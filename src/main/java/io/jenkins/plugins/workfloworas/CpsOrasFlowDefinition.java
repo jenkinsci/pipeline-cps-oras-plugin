@@ -11,17 +11,25 @@ import com.cloudbees.plugins.credentials.common.StandardUsernamePasswordCredenti
 import com.cloudbees.plugins.credentials.common.UsernamePasswordCredentials;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
+import hudson.AbortException;
 import hudson.Extension;
+import hudson.FilePath;
+import hudson.Util;
 import hudson.model.Action;
+import hudson.model.Computer;
 import hudson.model.Item;
 import hudson.model.Queue;
 import hudson.model.Run;
 import hudson.model.TaskListener;
+import hudson.model.TopLevelItem;
 import hudson.security.ACL;
+import hudson.slaves.WorkspaceList;
 import hudson.util.ListBoxModel;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
@@ -47,8 +55,11 @@ import org.kohsuke.stapler.verb.POST;
 @PersistIn(JOB)
 public class CpsOrasFlowDefinition extends FlowDefinition {
 
-    public static final ArtifactType ARTIFACT_TYPE =
+    public static final ArtifactType ARTIFACT_TYPE_SCRIPT =
             ArtifactType.from("application/vnd.jenkins.pipeline.manifest.v1+json");
+
+    public static final ArtifactType ARTIFACT_TYPE_REPO =
+            ArtifactType.from("application/vnd.jenkins.repo.manifest.v1+json");
 
     /**
      * Credentials ID to retrieve the pipeline script
@@ -60,6 +71,11 @@ public class CpsOrasFlowDefinition extends FlowDefinition {
      */
     private final String containerRef;
 
+    /**
+     * Optional path to the script inside the container.
+     */
+    private String scriptPath;
+
     @DataBoundConstructor
     public CpsOrasFlowDefinition(String containerRef) {
         this.containerRef = containerRef;
@@ -70,6 +86,7 @@ public class CpsOrasFlowDefinition extends FlowDefinition {
     }
 
     @DataBoundSetter
+    @SuppressWarnings("unused") // Used by Stapler
     public void setCredentialsId(String credentialsId) {
         this.credentialsId = credentialsId;
     }
@@ -78,10 +95,19 @@ public class CpsOrasFlowDefinition extends FlowDefinition {
         return containerRef;
     }
 
+    public String getScriptPath() {
+        return scriptPath;
+    }
+
+    @DataBoundSetter
+    @SuppressWarnings("unused") // Used by Stapler
+    public void setScriptPath(String scriptPath) {
+        this.scriptPath = scriptPath;
+    }
+
     @Override
     public FlowExecution create(FlowExecutionOwner owner, TaskListener listener, List<? extends Action> actions)
             throws Exception {
-
         // Allow replay
         for (Action a : actions) {
             if (a instanceof CpsFlowFactoryAction2) {
@@ -100,16 +126,66 @@ public class CpsOrasFlowDefinition extends FlowDefinition {
         }
         ContainerRef containerRef = ContainerRef.parse(this.containerRef);
         Manifest manifest = registry.getManifest(containerRef);
-        ensureArtifactType(manifest);
+        ensureArtifactType(scriptPath, manifest);
         String digest = manifest.getLayers().get(0).getDigest();
-        listener.getLogger()
-                .printf("Using pipeline script from container %s with digest %s%n", this.containerRef, digest);
         if (digest == null || digest.isEmpty()) {
             throw new IllegalArgumentException("No digest found for the container reference: " + containerRef);
         }
-        try (InputStream is = registry.fetchBlob(containerRef.withDigest(digest))) {
-            return new CpsFlowExecution(new String(is.readAllBytes(), StandardCharsets.UTF_8), true, owner);
+        if (!hasScriptPath(scriptPath)) {
+            listener.getLogger()
+                    .printf("Using pipeline script from container %s with digest %s%n", this.containerRef, digest);
+            try (InputStream is = registry.fetchBlob(containerRef.withDigest(digest))) {
+                return new CpsFlowExecution(new String(is.readAllBytes(), StandardCharsets.UTF_8), true, owner);
+            }
+        } else {
+            FilePath dir = getDownloadFolder(owner);
+            Computer computer = Jenkins.get().toComputer();
+            if (computer == null) {
+                throw new IOException(Jenkins.get().getDisplayName() + " may be offline");
+            }
+            listener.getLogger()
+                    .printf(
+                            "Using pipeline script %s from container %s with digest %s%n",
+                            this.scriptPath, this.containerRef, digest);
+            try (WorkspaceList.Lease lease = computer.getWorkspaceList().allocate(dir)) {
+                Path scriptPathFile = Path.of(this.scriptPath).normalize();
+                Path remote = Path.of(lease.path.getRemote());
+                Path resolved = remote.resolve(scriptPathFile).normalize();
+                if (!resolved.startsWith(remote)) {
+                    throw new SecurityException("Only script path inside archive can be selected: " + scriptPathFile);
+                }
+                registry.pullArtifact(containerRef, remote, true);
+                if (!Files.exists(resolved)) {
+                    throw new IOException("Script path does not exist in the container: " + scriptPathFile);
+                }
+                String content = Files.readString(resolved);
+                Util.deleteRecursive(remote.toFile());
+                return new CpsFlowExecution(content, true, owner);
+            }
         }
+    }
+
+    private static boolean hasScriptPath(String scriptPath) {
+        return scriptPath != null && !scriptPath.isEmpty();
+    }
+
+    private FilePath getDownloadFolder(FlowExecutionOwner owner) throws IOException {
+        FilePath dir;
+        if (owner.getExecutable().getParent() instanceof TopLevelItem) {
+            FilePath baseWorkspace = Jenkins.get()
+                    .getWorkspaceFor((TopLevelItem) owner.getExecutable().getParent());
+            if (baseWorkspace == null) {
+                throw new IOException(Jenkins.get().getDisplayName() + " may be offline");
+            }
+            dir = baseWorkspace.withSuffix(getFilePathSuffix() + "cps");
+        } else {
+            throw new AbortException("Cannot check out in non-top-level build");
+        }
+        return dir;
+    }
+
+    private static String getFilePathSuffix() {
+        return System.getProperty(WorkspaceList.class.getName(), "@");
     }
 
     private static Registry buildRegistry(Item item, String credentialsId) {
@@ -139,11 +215,22 @@ public class CpsOrasFlowDefinition extends FlowDefinition {
                         CredentialsMatchers.instanceOf(StandardUsernamePasswordCredentials.class)));
     }
 
-    private static void ensureArtifactType(Manifest manifest) {
-        if (!Objects.equals(
-                ARTIFACT_TYPE.getMediaType(), manifest.getArtifactType().getMediaType())) {
+    private static void ensureArtifactType(String scriptPath, Manifest manifest) {
+        if (!hasScriptPath(scriptPath)
+                && !Objects.equals(
+                        ARTIFACT_TYPE_SCRIPT.getMediaType(),
+                        manifest.getArtifactType().getMediaType())) {
             throw new IllegalArgumentException(
-                    "The container reference does not point to a valid pipeline manifest. Make sure to set application/vnd.jenkins.pipeline.manifest.v1+json artifact type when pushing the artifact");
+                    "The container reference does not point to a valid pipeline manifest. Make sure to set %s artifact type when pushing the artifact. Found artifact type %s instead"
+                            .formatted(ARTIFACT_TYPE_SCRIPT, manifest.getArtifactType()));
+        }
+        if (hasScriptPath(scriptPath)
+                && !Objects.equals(
+                        ARTIFACT_TYPE_REPO.getMediaType(),
+                        manifest.getArtifactType().getMediaType())) {
+            throw new IllegalArgumentException(
+                    "The container reference does not point to a valid repository manifest. Make sure to set %s artifact type when pushing the artifact. Found artifact type %s instead"
+                            .formatted(ARTIFACT_TYPE_REPO, manifest.getArtifactType()));
         }
     }
 

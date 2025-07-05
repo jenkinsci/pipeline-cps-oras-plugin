@@ -35,6 +35,14 @@ You can push such an artifact using the [ORAS CLI](https://oras.land/docs/comman
 oras push localhost:5000/hello:latest --artifact-type application/vnd.jenkins.pipeline.manifest.v1+json Jenkinsfile
 ```
 
+You can also package a folder and use `scriptPath` in the configuration to reference the pipeline script.
+
+In that case the artifact must have the following artifact type: `application/vnd.jenkins.repo.manifest.v1+json`
+
+```bash
+oras push localhost:5000/hello:latest --artifact-type application/vnd.jenkins.repo.manifest.v1+json .
+```
+
 You will see then on the logs the digest of the pipeline script artifact
 
 ![log.png](docs/log.png)
