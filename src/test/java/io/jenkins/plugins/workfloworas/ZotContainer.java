@@ -20,8 +20,7 @@ public class ZotContainer extends GenericContainer<ZotContainer> {
             // Zot config file
             Path configFile = Files.createTempFile("zot-config", ".json");
             // language=JSON
-            String configJson =
-                    """
+            String configJson = """
                     {
                       "storage": { "rootDirectory": "/var/lib/registry" },
                       "http": {
