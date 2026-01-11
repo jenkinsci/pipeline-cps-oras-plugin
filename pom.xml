@@ -36,7 +36,7 @@
     <jenkins.version>${jenkins.baseline}.3</jenkins.version>
     <gitHubRepo>jenkinsci/${project.artifactId}-plugin</gitHubRepo>
 
-    <testcontainer.version>1.21.4</testcontainer.version>
+    <testcontainer.version>2.0.3</testcontainer.version>
     <wiremock.version>3.13.2</wiremock.version>
 
     <spotless.check.skip>false</spotless.check.skip>
@@ -54,11 +54,6 @@
       </dependency>
       <dependency>
         <groupId>org.testcontainers</groupId>
-        <artifactId>junit-jupiter</artifactId>
-        <version>${testcontainer.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>org.testcontainers</groupId>
         <artifactId>testcontainers</artifactId>
         <version>${testcontainer.version}</version>
         <exclusions>
@@ -68,6 +63,11 @@
           </exclusion>
         </exclusions>
       </dependency>
+      <dependency>
+        <groupId>org.testcontainers</groupId>
+        <artifactId>testcontainers-junit-jupiter</artifactId>
+        <version>${testcontainer.version}</version>
+      </dependency>
     </dependencies>
   </dependencyManagement>
 
@@ -75,7 +75,6 @@
     <dependency>
       <groupId>io.jenkins.plugins</groupId>
       <artifactId>oras-java-api</artifactId>
-      <!-- To remove when on bom -->
     </dependency>
     <dependency>
       <groupId>org.jenkins-ci.plugins</groupId>
@@ -116,12 +115,12 @@
     </dependency>
     <dependency>
       <groupId>org.testcontainers</groupId>
-      <artifactId>junit-jupiter</artifactId>
+      <artifactId>testcontainers</artifactId>
       <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>org.testcontainers</groupId>
-      <artifactId>testcontainers</artifactId>
+      <artifactId>testcontainers-junit-jupiter</artifactId>
       <scope>test</scope>
     </dependency>
     <dependency>
