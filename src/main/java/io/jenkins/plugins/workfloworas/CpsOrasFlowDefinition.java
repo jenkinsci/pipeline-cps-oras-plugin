@@ -36,8 +36,10 @@ import java.util.Objects;
 import jenkins.model.Jenkins;
 import land.oras.ArtifactType;
 import land.oras.ContainerRef;
+import land.oras.Layer;
 import land.oras.Manifest;
 import land.oras.Registry;
+import land.oras.utils.Const;
 import org.jenkinsci.Symbol;
 import org.jenkinsci.plugins.workflow.cps.CpsFlowExecution;
 import org.jenkinsci.plugins.workflow.cps.CpsFlowFactoryAction2;
@@ -60,6 +62,10 @@ public class CpsOrasFlowDefinition extends FlowDefinition {
 
     public static final ArtifactType ARTIFACT_TYPE_REPO =
             ArtifactType.from("application/vnd.jenkins.repo.manifest.v1+json");
+
+    // Media type to take if multiple layer are found
+    public static final String SCRIPT_MEDIA_TYPE = "text/x-groovy";
+    public static final String REPO_MEDIA_TYPE = Const.DEFAULT_BLOB_DIR_MEDIA_TYPE;
 
     /**
      * Credentials ID to retrieve the pipeline script
@@ -127,7 +133,16 @@ public class CpsOrasFlowDefinition extends FlowDefinition {
         ContainerRef containerRef = ContainerRef.parse(this.containerRef);
         Manifest manifest = registry.getManifest(containerRef);
         ensureArtifactType(scriptPath, manifest);
-        String digest = manifest.getLayers().get(0).getDigest();
+        Layer layer = manifest.getLayers().size() == 1
+                ? manifest.getLayers().get(0)
+                : manifest.getLayers().stream()
+                        .filter(l -> Objects.equals(SCRIPT_MEDIA_TYPE, l.getMediaType())
+                                || Objects.equals(REPO_MEDIA_TYPE, l.getMediaType()))
+                        .findFirst()
+                        .orElseThrow(() -> new IllegalArgumentException(
+                                "No layer with media type %s or %s found in the container reference: %s"
+                                        .formatted(SCRIPT_MEDIA_TYPE, REPO_MEDIA_TYPE, this.containerRef)));
+        String digest = layer.getDigest();
         if (digest == null || digest.isEmpty()) {
             throw new IllegalArgumentException("No digest found for the container reference: " + containerRef);
         }
