@@ -75,6 +75,7 @@ class CpsOrasFlowDefinitionTest {
 
         CpsOrasFlowDefinition def = new CpsOrasFlowDefinition(
                 "%s/pipeline:latest".formatted(wmRuntimeInfo.getHttpBaseUrl().replaceAll("http://", "")));
+        def.setInsecure(true);
         p.setDefinition(def);
         WorkflowRun b = jenkinsRule.buildAndAssertSuccess(p);
         jenkinsRule.assertLogContains(
@@ -86,6 +87,7 @@ class CpsOrasFlowDefinitionTest {
     public void shouldRunPipelineWithPackagedRepo(JenkinsRule jenkinsRule) throws Exception {
         WorkflowJob p = jenkinsRule.jenkins.createProject(WorkflowJob.class, "p1");
         CpsOrasFlowDefinition def = new CpsOrasFlowDefinition("%s/repo:latest".formatted(container.getRegistry()));
+        def.setInsecure(true);
         def.setScriptPath("src/test/resources/Jenkinsfile");
         p.setDefinition(def);
         WorkflowRun b = jenkinsRule.buildAndAssertSuccess(p);
@@ -98,6 +100,7 @@ class CpsOrasFlowDefinitionTest {
 
         WorkflowJob p = jenkinsRule.createProject(WorkflowJob.class, "test-pipeline");
         CpsOrasFlowDefinition def = new CpsOrasFlowDefinition(orasRef);
+        def.setInsecure(true);
         p.setDefinition(def);
 
         // Simulate configuration round-trip

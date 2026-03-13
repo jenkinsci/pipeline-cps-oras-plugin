@@ -11,5 +11,9 @@
         <f:entry field="scriptPath" title="Script path" description="Optional path to the script if the container is a directory.">
             <f:textbox/>
         </f:entry>
+        <f:checkbox title="Insecure" field="insecure" description="Set insecure registry that use HTTP scheme. Use at your own risks."/>
     </f:advanced>
+    <f:validateButton title="${%Test Connection}" progress="${%Testing...}"
+                      method="testConnection"
+                      with="containerRef,credentialsId,insecure,scriptPath"/>
 </j:jelly>
