@@ -24,6 +24,7 @@ import hudson.model.TaskListener;
 import hudson.model.TopLevelItem;
 import hudson.security.ACL;
 import hudson.slaves.WorkspaceList;
+import hudson.util.FormValidation;
 import hudson.util.ListBoxModel;
 import java.io.IOException;
 import java.io.InputStream;
@@ -39,6 +40,7 @@ import land.oras.ContainerRef;
 import land.oras.Layer;
 import land.oras.Manifest;
 import land.oras.Registry;
+import land.oras.exception.OrasException;
 import land.oras.utils.Const;
 import org.jenkinsci.Symbol;
 import org.jenkinsci.plugins.workflow.cps.CpsFlowExecution;
@@ -73,6 +75,11 @@ public class CpsOrasFlowDefinition extends FlowDefinition {
     private String credentialsId;
 
     /**
+     * Insecure flag to allow pulling from insecure registries (without TLS).
+     */
+    private boolean insecure;
+
+    /**
      * Reference to the container in which the flow is defined such as my-registry/my-container:latest
      */
     private final String containerRef;
@@ -85,6 +92,15 @@ public class CpsOrasFlowDefinition extends FlowDefinition {
     @DataBoundConstructor
     public CpsOrasFlowDefinition(String containerRef) {
         this.containerRef = containerRef;
+    }
+
+    @DataBoundSetter
+    public void setInsecure(boolean insecure) {
+        this.insecure = insecure;
+    }
+
+    public boolean isInsecure() {
+        return insecure;
     }
 
     public String getCredentialsId() {
@@ -125,7 +141,7 @@ public class CpsOrasFlowDefinition extends FlowDefinition {
         if (!(executable instanceof Run<?, ?> build)) {
             throw new IOException("Can only pull a Jenkinsfile in a run");
         }
-        Registry registry = buildRegistry(build.getParent(), credentialsId);
+        Registry registry = buildRegistry(build.getParent(), credentialsId, insecure);
         Credentials credentials = getCredentials(build.getParent(), this.credentialsId);
         if (credentials != null) {
             CredentialsProvider.track(build, credentials);
@@ -203,10 +219,13 @@ public class CpsOrasFlowDefinition extends FlowDefinition {
         return System.getProperty(WorkspaceList.class.getName(), "@");
     }
 
-    private static Registry buildRegistry(Item item, String credentialsId) {
-        Registry.Builder builder = Registry.builder();
+    private static Registry buildRegistry(Item item, String credentialsId, boolean insecure) {
+        Registry.Builder builder = Registry.builder().defaults();
+        if (insecure) {
+            builder = builder.insecure();
+        }
         if (credentialsId == null || credentialsId.isEmpty()) {
-            return builder.insecure().build();
+            return builder.build();
         }
         UsernamePasswordCredentials credentials = getCredentials(item, credentialsId);
         if (credentials == null) {
@@ -281,6 +300,41 @@ public class CpsOrasFlowDefinition extends FlowDefinition {
                             Collections.emptyList(),
                             CredentialsMatchers.instanceOf(StandardUsernameCredentials.class))
                     .includeCurrentValue(credentialsId);
+        }
+
+        /**
+         * Test connection to the registry
+         */
+        @POST
+        public FormValidation doTestConnection(
+                @AncestorInPath Item item,
+                @QueryParameter String scriptPath,
+                @QueryParameter String containerRef,
+                @QueryParameter boolean insecure,
+                @QueryParameter String credentialsId) {
+            if (item != null) {
+                item.checkPermission(Item.CONFIGURE);
+            } else {
+                Jenkins.get().checkPermission(Jenkins.ADMINISTER);
+            }
+            if (containerRef == null || containerRef.trim().isEmpty()) {
+                return FormValidation.error("Reference is required");
+            }
+            try {
+                UsernamePasswordCredentials credentials = getCredentials(item, credentialsId);
+                Registry registry = buildRegistry(item, credentialsId, false);
+                ContainerRef ref = ContainerRef.parse(containerRef);
+                Manifest manifest = registry.getManifest(ref);
+                try {
+                    ensureArtifactType(scriptPath, manifest);
+                } catch (IllegalArgumentException e) {
+                    return FormValidation.error("Invalid artifact: " + e.getMessage());
+                }
+                return FormValidation.ok("Success! Found Artifact " + manifest.getArtifactType() + " with digest "
+                        + manifest.getDigest());
+            } catch (OrasException e) {
+                return FormValidation.error("Connection failed: " + e.getMessage());
+            }
         }
     }
 }
