@@ -42,6 +42,7 @@
     <ban-commons-lang-2.skip>false</ban-commons-lang-2.skip>
     <hpi.bundledArtifacts />
     <ban-deprecated-stapler.skip>false</ban-deprecated-stapler.skip>
+    <banObsoleteDependencyOverrides.skip>false</banObsoleteDependencyOverrides.skip>
   </properties>
 
   <dependencyManagement>
